@@ -194,6 +194,7 @@ jobs:
   
   publish-backend:
     working_directory: backend
+    executor: docker/docker
     steps:
       - setup_remote_docker
       - checkout
