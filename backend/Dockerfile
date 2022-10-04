@@ -5,8 +5,7 @@ WORKDIR /usr/src/app
 
 # install dependencies
 COPY ./backend/package*.json ./
-RUN npm install
-RUN npm install pm2 -g
+RUN npm install pm2@5.2.0 -g && npm install
 
 # copy source
 COPY ./backend .
