@@ -174,30 +174,40 @@ jobs:
             npm audit --audit-level=critical
   
   dockerize-backend:
-    executor: docker/machine
+    executor: docker/docker
     steps:
+      - setup_remote_docker
       - checkout
       - restore_cache:
           keys: [backend-build]
-      - docker/dockerlint:
-            dockerfile: backend/Dockerfile
-            treat-warnings-as-errors: true
+      - run:
+          name: Install dependencies
+          command: |
+            curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.35.3/install.sh | bash
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
+            [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
+            source ~/.bashrc
+            nvm install 13.8.0
+      - run:
+          name: Lint Dockerfile
+          command: |
+            docker run --rm --interactive hadolint/hadolint < backend/Dockerfile
       - docker/check
       - docker/build:
           image: $DOCKER_LOGIN/$DOCKER_TAG
           path: ./backend
-  
-  publish-backend:
-    executor: docker/machine
-    steps:
-      - checkout
-      - docker/push:
-          image: $DOCKER_LOGIN/$DOCKER_TAG
-          tag: latest
-          digest-path: /tmp/digest.txt
-      - run:
-          command: |
-            echo "Digest is: $(</tmp/digest.txt)"
+      - when:
+          condition:
+            equal: [ master, << pipeline.git.branch >> ]
+          steps:
+            - docker/push:
+                image: $DOCKER_LOGIN/$DOCKER_TAG
+                # tag: latest
+                digest-path: /tmp/digest.txt
+            - run:
+                command: |
+                  echo "Digest is: $(</tmp/digest.txt)"
 
   deploy-infrastructure:
     docker:
@@ -509,12 +519,7 @@ workflows:
       - scan-frontend:
           requires: [build-frontend]
       - dockerize-backend:
-          requires: [scan-backend]
-      - publish-backend:
-          requires: [dockerize-backend]
-          filters:
-            branches:
-              only: [master]
+          requires: [scan-backend, test-backend]
       # - deploy-infrastructure:
       #     requires: [test-frontend, test-backend, scan-frontend, scan-backend]
       #     filters:

@@ -4,13 +4,13 @@ FROM node:13.8.0
 WORKDIR /usr/src/app
 
 # install dependencies
-COPY package*.json ./
+COPY ./backend/package*.json ./
 RUN npm install
 RUN npm install pm2 -g
 
 # copy source
-COPY . .
-COPY .env.sample ./.env
+COPY ./backend .
+COPY ./backend/.env.sample ./.env
 
 EXPOSE 3030
 CMD [ "pm2-runtime", "start", "--name", "backend", "npm", "--", "start" ]
