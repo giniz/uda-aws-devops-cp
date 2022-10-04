@@ -1,5 +1,6 @@
 version: 2.1
-
+orbs:
+  docker: circleci/docker@2.1.4
 commands:
   create-dotenv-file:
     description: Create .env file
@@ -65,6 +66,13 @@ commands:
           when: << parameters.when >>
             
 jobs:
+  lint-backend-docker:
+    executor: docker/machine
+    steps:
+      - checkout
+      - docker/dockerlint:
+          dockerfile: backend/Dockerfile
+          treat-warnings-as-errors: true
   build-frontend:
     docker:
       - image: circleci/node:13.8.0
@@ -72,6 +80,11 @@ jobs:
       - checkout
       - restore_cache:
           keys: [frontend-build]
+      - run:
+          name: Lint front-end
+          command: |
+            cd frontend
+            npm run lint
       - run:
           name: Build front-end
           command: |
@@ -83,6 +96,7 @@ jobs:
           key: frontend-build
 
   build-backend:
+    working_directory: backend
     docker:
       - image: circleci/node:13.8.0
     steps:
@@ -90,9 +104,14 @@ jobs:
       - restore_cache:
           keys: [backend-build]
       - run:
-          name: Back-end build
+          name: Lint back-end
           command: |
             cd backend
+            npm run lint
+      - run:
+          name: Build front-end
+          command: |
+            cd frontend
             npm install
             npm run build
       - save_cache:
@@ -160,6 +179,32 @@ jobs:
             npm audit fix --audit-level=critical --force
             npm audit fix --force
             npm audit --audit-level=critical
+  
+  dockerize-backend:
+    working_directory: backend
+    executor: docker/docker
+    steps:
+      - setup_remote_docker
+      - checkout
+      - restore_cache:
+          keys: [backend-build]
+      - docker/check
+      - docker/build:
+          image: $DOCKER_LOGIN/$DOCKER_TAG
+  
+  publish-backend:
+    working_directory: backend
+    steps:
+      - setup_remote_docker
+      - checkout
+      - docker/publish:
+          cache_from: '$DOCKER_LOGIN/$DOCKER_TAG:latest'
+          image: $DOCKER_LOGIN/$DOCKER_TAG
+          tag: latest
+          digest-path: /tmp/digest.txt
+      - run:
+          command: |
+            echo "Digest is: $(</tmp/digest.txt)"
 
   deploy-infrastructure:
     docker:
@@ -470,22 +515,29 @@ workflows:
           requires: [build-backend]
       - scan-frontend:
           requires: [build-frontend]
-      - deploy-infrastructure:
-          requires: [test-frontend, test-backend, scan-frontend, scan-backend]
+      - dockerize-backend:
+          requires: [build-backend]
+      - publish-backend:
+          requires: [dockerize-backend]
           filters:
             branches:
               only: [master]
-      - configure-infrastructure:
-          requires: [deploy-infrastructure]
-      - run-migrations:
-          requires: [configure-infrastructure]
-      - deploy-frontend:
-          requires: [run-migrations]
-      - deploy-backend:
-          requires: [run-migrations]
-      - smoke-test:
-          requires: [deploy-backend, deploy-frontend]
-      - cloudfront-update:
-          requires: [smoke-test]
-      - cleanup:
-          requires: [cloudfront-update]
+      # - deploy-infrastructure:
+      #     requires: [test-frontend, test-backend, scan-frontend, scan-backend]
+      #     filters:
+      #       branches:
+      #         only: [master]
+      # - configure-infrastructure:
+      #     requires: [deploy-infrastructure]
+      # - run-migrations:
+      #     requires: [configure-infrastructure]
+      # - deploy-frontend:
+      #     requires: [run-migrations]
+      # - deploy-backend:
+      #     requires: [run-migrations]
+      # - smoke-test:
+      #     requires: [deploy-backend, deploy-frontend]
+      # - cloudfront-update:
+      #     requires: [smoke-test]
+      # - cleanup:
+      #     requires: [cloudfront-update]

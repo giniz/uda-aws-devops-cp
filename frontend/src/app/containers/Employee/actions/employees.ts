@@ -1,10 +1,10 @@
 import { Dispatch } from 'redux';
 import { createAction } from 'redux-actions';
-import { 
-  EmployeeModel, 
-  EmployeeUpdateStringFieldModel, 
-  EmployeeUpdateNumberFieldModel, 
-  EmployeeUpdateDateFieldModel, 
+import {
+  EmployeeModel,
+  EmployeeUpdateStringFieldModel,
+  EmployeeUpdateNumberFieldModel,
+  EmployeeUpdateDateFieldModel,
   EmployeeUpdateNamesModel,
   EmployeeUpdateAddressModel,
 } from '../models/EmployeeModel';

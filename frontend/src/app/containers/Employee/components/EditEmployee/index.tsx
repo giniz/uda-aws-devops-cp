@@ -159,7 +159,7 @@ export class EditEmployee extends Component<EditEmployee.Props, EditEmployee.Sta
   handleDisplayNameChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const { value, name } = event.target;
     const requestExecutionCallback =
-      () => this.props.actions.updateStringField(this.state.employeeId, { value: value }, name);
+      () => this.props.actions.updateStringField(this.state.employeeId, { value }, name);
 
     this.processInputChange(
       { displayName: value },
@@ -316,7 +316,7 @@ export class EditEmployee extends Component<EditEmployee.Props, EditEmployee.Sta
     );
 
     this.processInputChange(
-      { country: country },
+      { country },
       requestExecutionCallback,
       !isInputEmpty(country),
       `Country is invalid`
@@ -355,25 +355,25 @@ export class EditEmployee extends Component<EditEmployee.Props, EditEmployee.Sta
   handleBirthdateChanged = (date: Date | null) => {
     const birthdate = date || new Date();
     this.processInputChange(
-      { birthdate: birthdate },
-      () => this.props.actions.updateDateField(this.state.employeeId, { value: birthdate }, 'birthdate'), //thunk
+      { birthdate },
+      () => this.props.actions.updateDateField(this.state.employeeId, { value: birthdate }, 'birthdate'), // thunk
     );
   }
 
   handleEffectiveDateChanged = (date: Date | null) => {
     const effectiveDate = date || new Date();
     this.processInputChange(
-      { effectiveDate: effectiveDate },
-      () => this.props.actions.updateDateField(this.state.employeeId, { value: effectiveDate }, 'effectiveDate'), //thunk
+      { effectiveDate },
+      () => this.props.actions.updateDateField(this.state.employeeId, { value: effectiveDate }, 'effectiveDate'), // thunk
       !isInputEmpty(effectiveDate.toString()),
-      `Effective Date is invalid` //error notification
+      `Effective Date is invalid` // error notification
     );
   }
 
   handleTagsChange = (newTags: Array<any>) => {
     this.processInputChange(
       { tags: newTags },
-      () => this.props.actions.updateStringField(this.state.employeeId, { value: JSON.stringify(newTags) }, 'tags'), //thunk
+      () => this.props.actions.updateStringField(this.state.employeeId, { value: JSON.stringify(newTags) }, 'tags'), // thunk
     );
   }
 
@@ -383,7 +383,7 @@ export class EditEmployee extends Component<EditEmployee.Props, EditEmployee.Sta
     const { value } = event.target;
     this.processInputChange(
       { salaryType: value as SalaryType },
-      () => this.props.actions.updateStringField(this.state.employeeId, { value }, 'salaryType'), //thunk
+      () => this.props.actions.updateStringField(this.state.employeeId, { value }, 'salaryType'), // thunk
     );
   }
 
