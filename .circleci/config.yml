@@ -176,7 +176,6 @@ jobs:
   dockerize-backend:
     executor: docker/machine
     steps:
-      - setup_remote_docker
       - checkout
       - restore_cache:
           keys: [backend-build]
@@ -190,9 +189,8 @@ jobs:
           path: backend
   
   publish-backend:
-    executor: docker/docker
+    executor: docker/machine
     steps:
-      - setup_remote_docker
       - checkout
       - docker/push:
           image: $DOCKER_LOGIN/$DOCKER_TAG
