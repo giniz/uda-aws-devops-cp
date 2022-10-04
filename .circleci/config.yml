@@ -198,7 +198,7 @@ jobs:
     steps:
       - setup_remote_docker
       - checkout
-      - docker/publish:
+      - docker/push:
           cache_from: '$DOCKER_LOGIN/$DOCKER_TAG:latest'
           image: $DOCKER_LOGIN/$DOCKER_TAG
           tag: latest
