@@ -174,7 +174,6 @@ jobs:
             npm audit --audit-level=critical
   
   dockerize-backend:
-    working_directory: backend
     executor: docker/docker
     steps:
       - setup_remote_docker
@@ -182,11 +181,12 @@ jobs:
       - restore_cache:
           keys: [backend-build]
       - docker/dockerlint:
-            dockerfile: Dockerfile
+            dockerfile: backend/Dockerfile
             treat-warnings-as-errors: true
       - docker/check
       - docker/build:
           image: $DOCKER_LOGIN/$DOCKER_TAG
+          path: backend
   
   publish-backend:
     working_directory: backend
