@@ -174,7 +174,7 @@ jobs:
             npm audit --audit-level=critical
   
   dockerize-backend:
-    executor: docker/docker
+    executor: docker/machine
     steps:
       - setup_remote_docker
       - checkout
@@ -186,10 +186,10 @@ jobs:
       - docker/check
       - docker/build:
           image: $DOCKER_LOGIN/$DOCKER_TAG
+          dockerfile: backend/Dockerfile
           path: backend
   
   publish-backend:
-    working_directory: backend
     executor: docker/docker
     steps:
       - setup_remote_docker
@@ -198,6 +198,8 @@ jobs:
           image: $DOCKER_LOGIN/$DOCKER_TAG
           tag: latest
           digest-path: /tmp/digest.txt
+          dockerfile: backend/Dockerfile
+          path: backend
       - run:
           command: |
             echo "Digest is: $(</tmp/digest.txt)"
@@ -512,7 +514,7 @@ workflows:
       - scan-frontend:
           requires: [build-frontend]
       - dockerize-backend:
-          requires: [build-backend]
+          requires: [scan-backend]
       - publish-backend:
           requires: [dockerize-backend]
           filters:
