@@ -1,7 +1,194 @@
 version: 2.1
 orbs:
   docker: circleci/docker@2.1.4
+  aws-eks: circleci/aws-eks@0.2.0
+  kubernetes: circleci/kubernetes@1.3.1
 commands:
+  setup-eks-iam:
+    description: Setup IAM authenticator
+    steps:
+      - kubernetes/install:
+          kubectl-version: v1.22.0
+      - run:
+          name: Install IAM authenticator
+          command: |
+            curl -o aws-iam-authenticator https://github.com/kubernetes-sigs/aws-iam-authenticator/releases/download/v0.5.6/aws-iam-authenticator_0.5.6_linux_amd64
+            chmod +x ./aws-iam-authenticator
+            mkdir -p $HOME/bin && cp ./aws-iam-authenticator $HOME/bin/aws-iam-authenticator && export PATH=$PATH:$HOME/bin
+            echo 'export PATH=$PATH:$HOME/bin' >> ~/.bashrc
+  setup-eksctl:
+    description: Setup eksctl
+    steps:
+      - run:
+          name: Install eksctl
+          command: |
+            mkdir -p eksctl_download
+            curl --silent --location --retry 5 "https://github.com/weaveworks/eksctl/releases/download/v0.113.0/eksctl_$(uname -s)_amd64.tar.gz" \
+              | tar xz -C eksctl_download
+            chmod +x eksctl_download/eksctl
+            SUDO=""
+            if [ $(id -u) -ne 0 ] && which sudo > /dev/null ; then
+              SUDO="sudo"
+            fi
+            $SUDO mv eksctl_download/eksctl /usr/local/bin/
+            rmdir eksctl_download
+  delete_cluster:
+    description: |
+      Deletes the EKS cluster and resources that were created for it.
+      The cluster must have been created with the create-cluster command of the orb.
+      It is recommended to delete any kubernetes resources that were deployed to the
+      cluster (e.g. resources involving an AWS Elastic Load Balancer)
+      before running the delete-cluster command, so that resources can be fully
+      removed.
+    parameters:
+      aws-max-polling-wait-time:
+        default: 20m0s
+        description: |
+          Max wait time in any AWS polling operations
+        type: string
+      aws-profile:
+        default: ''
+        description: |
+          The AWS profile to be used. If not specified, the configured default
+          profile for your AWS CLI installation will be used.
+        type: string
+      aws-region:
+        default: ''
+        description: >
+          AWS region that the EKS cluster will be created in.
+    
+          If no value is specified, the cluster will be created in the us-west-2
+          region.
+        type: string
+      cfn-role-arn:
+        default: ''
+        description: >
+          Specify an IAM role to be used by CloudFormation to call AWS API on your
+          behalf
+        type: string
+      cluster-name:
+        description: |
+          Name of the EKS cluster
+        type: string
+      config-file:
+        default: ''
+        description: |
+          Use this to specify a file if you wish to load configuration from it.
+        type: string
+      no-output-timeout:
+        default: 30m
+        description: |
+          Elapsed time that the cluster creation command can run without output.
+          The string is a decimal with unit suffix, such as “20m”, “1.25h”, “5s”
+        type: string
+      show-eksctl-command:
+        default: false
+        description: |
+          Whether to show the eksctl command used.
+        type: boolean
+      verbose:
+        default: 3
+        description: >
+          Set a value from 0 to 5 to control the verbosity level of the log output
+          (the higher, the more verbose).
+    
+          Use 0 to silence, 4 for debugging and 5 for debugging with AWS debug
+          logging.
+    
+          The logging verbosity level is set to 3 by default.
+    
+          When set to 4 and above, verbose details of AWS resources will be
+          displayed in the log output.
+    
+          When set to 5, sensitive information such as credentials may be displayed
+          in the log output.
+        type: integer
+      wait:
+        default: false
+        description: |
+          Whether to wait for deletion of all resources before exiting
+        type: boolean
+    steps:
+      - setup-eks-iam
+      - setup-eksctl
+      - run:
+          when: on_fail
+          command: >
+            #!/bin/bash
+    
+            CLUSTER_NAME=$(eval echo "$PARAM_CLUSTER_NAME")
+    
+            CONFIG_FILE=$(eval echo "$PARAM_CONFIG_FILE")
+    
+            AWS_REGION=$(eval echo "$PARAM_AWS_REGION")
+    
+            AWS_PROFILE=$(eval echo "$PARAM_AWS_PROFILE")
+    
+            WAIT=$(eval echo "$PARAM_WAIT")
+    
+            CFN_ROLE_ARN=$(eval echo "$PARAM_CFN_ROLE_ARN")
+    
+            VERBOSE=$(eval echo "$PARAM_VERBOSE")
+    
+            AWS_MAX_POLLING_WAIT_TIME=$(eval echo
+            "$PARAM_AWS_MAX_POLLING_WAIT_TIME")
+    
+    
+    
+            if [ -n "${CLUSTER_NAME}" ]; then
+                set -- "$@" --name="${CLUSTER_NAME}"
+            fi
+    
+            if [ -n "${CONFIG_FILE}" ]; then
+                set -- "$@" --config-file="${CONFIG_FILE}"
+            fi
+    
+            if [ -n "${AWS_REGION}" ]; then
+                set -- "$@" --region="${AWS_REGION}"
+            fi
+    
+            if [ -n "${AWS_PROFILE}" ]; then
+                set -- "$@" --profile="${AWS_PROFILE}"
+            fi
+    
+            if [ "${WAIT}" == "true" ]; then
+                set -- "$@" --wait
+            fi
+    
+            if [ -n "${CFN_ROLE_ARN}" ]; then
+                set -- "$@" --cfn-role-arn="${CFN_ROLE_ARN}"
+            fi
+    
+            if [ -n "${AWS_MAX_POLLING_WAIT_TIME}" ]; then
+                set -- "$@" --timeout="${AWS_MAX_POLLING_WAIT_TIME}"
+            fi
+    
+            set -- "$@" --verbose="${VERBOSE}"
+    
+    
+            if [ "$SHOW_EKSCTL_COMMAND" == "1" ]; then
+                set -x
+            fi
+    
+    
+            eksctl delete cluster "$@"
+    
+    
+            if [ "$SHOW_EKSCTL_COMMAND" == "1" ]; then
+                set +x
+            fi
+          environment:
+            PARAM_AWS_MAX_POLLING_WAIT_TIME: << parameters.aws-max-polling-wait-time >>
+            PARAM_AWS_PROFILE: << parameters.aws-profile >>
+            PARAM_AWS_REGION: << parameters.aws-region >>
+            PARAM_CFN_ROLE_ARN: << parameters.cfn-role-arn >>
+            PARAM_CLUSTER_NAME: << parameters.cluster-name >>
+            PARAM_CONFIG_FILE: << parameters.config-file >>
+            PARAM_VERBOSE: << parameters.verbose >>
+            PARAM_WAIT: << parameters.wait >>
+          name: Delete EKS cluster and associated resources
+          no_output_timeout: << parameters.no-output-timeout >>
+
   create-dotenv-file:
     description: Create .env file
     steps:
@@ -26,11 +213,11 @@ commands:
       id:
         type: string
     steps:
-      - run:
-          name: Destroy udapeople backend stack
-          command: |
-            aws cloudformation delete-stack --stack-name udapeople-backend-<< parameters.id >>
-          when: << parameters.when >>
+      # - run:
+      #     name: Destroy udapeople backend stack
+      #     command: |
+      #       aws cloudformation delete-stack --stack-name udapeople-backend-<< parameters.id >>
+      #     when: << parameters.when >>
       - run:
           name: Destroy udapeople frontend stack and S3 bucket
           command: |
@@ -66,7 +253,6 @@ commands:
           when: << parameters.when >>
             
 jobs:
-          
   build-frontend:
     docker:
       - image: circleci/node:13.8.0
@@ -125,7 +311,6 @@ jobs:
             npm install
             npm run test
 
-                
   test-backend:
     docker:
       - image: circleci/node:13.8.0
@@ -175,41 +360,166 @@ jobs:
   
   dockerize-backend:
     executor: docker/docker
+    parameters:
+      version-info:
+        default: ""
+        description: |
+            Application version
+        type: string
     steps:
       - setup_remote_docker
       - checkout
       - restore_cache:
           keys: [backend-build]
       - run:
-          name: Install dependencies
-          command: |
-            curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.35.3/install.sh | bash
-            export NVM_DIR="$HOME/.nvm"
-            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
-            [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
-            source ~/.bashrc
-            nvm install 13.8.0
-      - run:
           name: Lint Dockerfile
           command: |
             docker run --rm --interactive hadolint/hadolint < backend/Dockerfile
       - docker/check
+      - create-dotenv-file
       - docker/build:
           image: $DOCKER_LOGIN/$DOCKER_TAG
+          tag: << parameters.version-info >>
           path: ./backend
       - when:
           condition:
             equal: [ master, << pipeline.git.branch >> ]
           steps:
             - docker/push:
-                image: $DOCKER_LOGIN/$DOCKER_TAG
-                # tag: latest
+                image: "${DOCKER_LOGIN}/${DOCKER_TAG}"
+                tag: << parameters.version-info >>
                 digest-path: /tmp/digest.txt
             - run:
                 command: |
                   echo "Digest is: $(</tmp/digest.txt)"
+                  
+  # aws-eks/create-cluster having error at setup IAM hence self-created this job    
+  create-cluster:
+    docker:
+      - image: cimg/python:3.10
+    parameters:
+      aws-region:
+        default: ""
+        description: |
+            AWS region that the EKS cluster will be created in.
+        type: string
+      cluster-name:
+        default: ""
+        description: |
+            Name of the EKS cluster to be created
+        type: string
+      node-type:
+        default: ''
+        description: |
+          Set this to specify a node instance type for the node group.
+        type: string
+      ssh-public-key:
+        default: ""
+        description: |
+            Public key for SSH
+        type: string
+    steps:
+      - setup-eks-iam
+      - setup-eksctl
+      - aws-eks/create-cluster:
+          aws-region: << parameters.aws-region >>
+          cluster-name: << parameters.cluster-name >>
+          node-type: << parameters.node-type >>
+          ssh-public-key: <<  parameters.ssh-public-key >>
+          ssh-access: true
+                  
+  deploy-backend:
+    executor: aws-eks/python3
+    parameters:
+      cluster-name:
+        description: |
+          Name of the EKS cluster
+        type: string
+      docker-image-name:
+        description: |
+          Name of the docker image to be deployed
+        type: string
+      version-info:
+        description: |
+          App version information
+        type: string
+      aws-region:
+        description: |
+          AWS region
+        type: string
+        default: "us-east-1"
+    steps:
+      - checkout
+      - run:
+          name: Create deployment manifest
+          command: |
+            # Replace the placeholders in the manifest with the intended values.
+            # This is to avoid hardcoding the image name in the manifest, to make this
+            # demo project more portable.
+            BUILD_DATE=$(date '+%Y%m%d%H%M%S')
+            cat deployment/udapeople_deployment.tmpl.yml |\
+               sed "s|DOCKER_IMAGE_NAME|<< parameters.docker-image-name >>|\
+                g;s|BUILD_DATE_VALUE|$BUILD_DATE|g;s|VERSION_INFO_VALUE|\
+                << parameters.version-info >>|g" > deployment/udapeople_deployment.yml
+      - setup-eks-iam
+      - setup-eksctl
+      - aws-eks/update-kubeconfig-with-authenticator:
+          cluster-name: << parameters.cluster-name >>
+          install-kubectl: false
+      - kubernetes/create-or-update-resource:
+          resource-file-path: "deployment/udapeople_deployment.yml"
+          get-rollout-status: true
+          watch-timeout: 10m
+          resource-name: deployment/udapeople
+      - kubernetes/create-or-update-resource:
+          resource-file-path: "deployment/udapeople_service.yml"
+      - delete_cluster:
+          aws-region: << parameters.aws-region >>
+          cluster-name: << parameters.cluster-name >>
+            
+  test-backend:
+    executor: aws-eks/python3
+    parameters:
+      cluster-name:
+        description: |
+          Name of the EKS cluster
+        type: string
+      aws-region:
+        description: |
+          AWS region
+        type: string
+        default: ""
+      expected-version-info:
+        description: |
+          Expected app version (this is used for testing that the
+          correct version has been deployed)
+        type: string
+    steps:
+      - setup-eks-iam
+      - setup-eksctl
+      - aws-eks/update-kubeconfig-with-authenticator:
+          cluster-name: << parameters.cluster-name >>
+          install-kubectl: false
+      - run:
+          name: Wait for service to be ready
+          command: |
+            kubectl get pods
+            kubectl get services
+            sleep 30
+            for attempt in {1..20}; do
+              EXTERNAL_IP=$(kubectl get service udapeople | awk '{print $4}' | tail -n1)
+              echo "Checking external IP: ${EXTERNAL_IP}"
+              if [ -n "${EXTERNAL_IP}" ] && [ -z $(echo "${EXTERNAL_IP}" | grep "pending") ]; then
+                break
+              fi
+              echo "Waiting for external IP to be ready: ${EXTERNAL_IP}"
+              sleep 10
+            done
+            sleep 180
+            curl -s --retry 10 "http://$EXTERNAL_IP:3030/api/status" | grep "<< parameters.expected-version-info >>"
+            curl https://kvdb.io/UibNSjfqSw2v34NoHV3F5L/BACKEND_URL --request PUT -d "http://$EXTERNAL_IP:3030"
 
-  deploy-infrastructure:
+  deploy-frontend-infra:
     docker:
       - image: amazon/aws-cli
     steps:
@@ -219,22 +529,6 @@ jobs:
           command: |
             yum install -y tar gzip
       - run:
-          name: Ensure back-end infrastructure exists
-          command: |
-            aws cloudformation deploy \
-              --template-file .circleci/files/backend.yml \
-              --tags project=udapeople \
-              --stack-name "udapeople-backend-${CIRCLE_WORKFLOW_ID:0:7}" \
-              --parameter-overrides ID="${CIRCLE_WORKFLOW_ID:0:7}"
-      - run:
-          name: Save backend URL in kvdb
-          command: |
-            BACKEND_IP=$(aws ec2 describe-instances \
-              --query 'Reservations[*].Instances[*].PublicIpAddress' \
-              --filters "Name=tag:aws:cloudformation:stack-name,Values=udapeople-backend-${CIRCLE_WORKFLOW_ID:0:7}" \
-              --output text)
-            curl https://kvdb.io/UibNSjfqSw2v34NoHV3F5L/BACKEND_URL --request PUT -d "http://${BACKEND_IP}:3030"
-      - run:
           name: Ensure front-end infrastructure exist
           command: |
             aws cloudformation deploy \
@@ -242,18 +536,6 @@ jobs:
               --tags project=udapeople \
               --stack-name "udapeople-frontend-${CIRCLE_WORKFLOW_ID:0:7}" \
               --parameter-overrides ID="${CIRCLE_WORKFLOW_ID:0:7}"
-      - run:
-          name: Add back-end ip to ansible inventory
-          command: |
-            aws ec2 describe-instances \
-              --query 'Reservations[*].Instances[*].PublicIpAddress' \
-              --filters "Name=tag:aws:cloudformation:stack-name,Values=udapeople-backend-${CIRCLE_WORKFLOW_ID:0:7}" \
-              --output text >> ./.circleci/ansible/inventory.txt
-            cat ./.circleci/ansible/inventory.txt
-      - persist_to_workspace:
-          root: .
-          paths:
-            - ./.circleci/ansible/inventory.txt
       - destroy_environment:
           id: ${CIRCLE_WORKFLOW_ID:0:7}
           when: on_fail    
@@ -341,57 +623,9 @@ jobs:
             - frontend/dist
       - destroy_environment:
           id: ${CIRCLE_WORKFLOW_ID:0:7}
-          when: on_fail
-      - revert_migrations:
-          id: ${CIRCLE_WORKFLOW_ID:0:7}
-          when: on_fail   
-                    
-  deploy-backend:
-    docker:
-      - image: python:3.7-alpine3.11
-    steps:
-      - checkout
-      - add_ssh_keys:
-          fingerprints: ["4c:82:9e:6e:e7:4b:1a:7b:fc:7b:8d:1f:7c:07:88:c9"]
-      - attach_workspace:
-          at: .
-      - restore_cache:
-          keys: [backend-build]
-      - run:
-          name: Install dependencies
-          command: |
-            apk add --update ansible tar gzip curl rsync openssh openssh-client nodejs npm
-            pip install awscli
-      - create-dotenv-file
-      - run:
-          name: Deploy backend
-          command: |
-            cd backend
-            npm i
-            npm run build
-            cd ..
-            # tar dir
-            echo "Current directory: $pwd"
-            tar -zcvf backend.tar.gz backend/
-            ls -la .
-            cd .circleci/ansible
-            echo "Contents of the inventory.txt file is --------"
-            cat inventory.txt
-            BACKEND_IP=$(aws ec2 describe-instances \
-              --query 'Reservations[*].Instances[*].PublicIpAddress' \
-              --filters "Name=tag:aws:cloudformation:stack-name,Values=udapeople-backend-${CIRCLE_WORKFLOW_ID:0:7}" \
-              --output text)
-            ssh-keyscan -H $BACKEND_IP >> ~/.ssh/known_hosts 
-            ansible-playbook -i inventory.txt deploy-backend.yml
-          no_output_timeout: 20m
-      - destroy_environment:
-          id: ${CIRCLE_WORKFLOW_ID:0:7}
-          when: on_fail
-      - revert_migrations:
-          id: ${CIRCLE_WORKFLOW_ID:0:7}
-          when: on_fail    
+          when: on_fail  
 
-  smoke-test:
+  test-frontend:
     docker:
       - image: alpine:latest 
     steps:
@@ -428,9 +662,6 @@ jobs:
                 return 1
               fi
       - destroy_environment:
-          id: ${CIRCLE_WORKFLOW_ID:0:7}
-          when: on_fail
-      - revert_migrations:
           id: ${CIRCLE_WORKFLOW_ID:0:7}
           when: on_fail
 
@@ -498,7 +729,7 @@ jobs:
                       aws s3 rb s3://$S3_BUCKET --force
                     fi
                     aws cloudformation delete-stack --stack-name "udapeople-frontend-${OLD_WF_ID}"
-                    aws cloudformation delete-stack --stack-name "udapeople-backend-${OLD_WF_ID}"
+                    # aws cloudformation delete-stack --stack-name "udapeople-backend-${OLD_WF_ID}"
                 else
                     echo "Same Workflow ID -> nothing to cleanup."
                 fi
@@ -520,22 +751,35 @@ workflows:
           requires: [build-frontend]
       - dockerize-backend:
           requires: [scan-backend, test-backend]
-      # - deploy-infrastructure:
-      #     requires: [test-frontend, test-backend, scan-frontend, scan-backend]
-      #     filters:
-      #       branches:
-      #         only: [master]
-      # - configure-infrastructure:
-      #     requires: [deploy-infrastructure]
-      # - run-migrations:
-      #     requires: [configure-infrastructure]
-      # - deploy-frontend:
-      #     requires: [run-migrations]
-      # - deploy-backend:
-      #     requires: [run-migrations]
-      # - smoke-test:
-      #     requires: [deploy-backend, deploy-frontend]
-      # - cloudfront-update:
-      #     requires: [smoke-test]
-      # - cleanup:
-      #     requires: [cloudfront-update]
+          version-info: "1.0.0"
+      - create-cluster:
+          cluster-name: ${EKS_CLUSTER_NAME}
+          aws-region: $AWS_DEFAULT_REGION
+          ssh-public-key: "udacity"
+          node-type: "t2.medium"
+          requires: [dockerize-backend]
+      - deploy-backend:
+          cluster-name: ${EKS_CLUSTER_NAME}
+          aws-region: $AWS_DEFAULT_REGION
+          docker-image-name: "${DOCKER_LOGIN}/${DOCKER_TAG}:latest"
+          version-info: "1.0.0" #"${CIRCLE_SHA1}"
+          requires: [create-cluster]
+      - test-backend:
+          name: test-backend
+          cluster-name: ${EKS_CLUSTER_NAME}
+          aws-region: $AWS_DEFAULT_REGION
+          expected-version-info: "1.0.0"
+          requires: [deploy-backend]
+      - deploy-frontend-infra:
+          requires: [test-frontend, scan-frontend]
+          filters:
+            branches:
+              only: [master]
+      - deploy-frontend:
+          requires: [deploy-frontend-infra]
+      - test-frontend:
+          requires: [deploy-frontend]
+      - cloudfront-update:
+          requires: [smoke-test]
+      - cleanup:
+          requires: [cloudfront-update]

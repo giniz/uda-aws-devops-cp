@@ -8,8 +8,7 @@ COPY ./backend/package*.json ./
 RUN npm install pm2@5.2.0 -g && npm install
 
 # copy source
-COPY ./backend .
-COPY ./backend/.env.sample ./.env
+COPY ./backend/ .
 
 EXPOSE 3030
 CMD [ "pm2-runtime", "start", "--name", "backend", "npm", "--", "start" ]
