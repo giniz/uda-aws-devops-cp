@@ -198,8 +198,6 @@ jobs:
           image: $DOCKER_LOGIN/$DOCKER_TAG
           tag: latest
           digest-path: /tmp/digest.txt
-          dockerfile: backend/Dockerfile
-          path: backend
       - run:
           command: |
             echo "Digest is: $(</tmp/digest.txt)"
