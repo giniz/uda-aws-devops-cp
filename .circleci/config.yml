@@ -199,7 +199,6 @@ jobs:
       - setup_remote_docker
       - checkout
       - docker/push:
-          cache_from: '$DOCKER_LOGIN/$DOCKER_TAG:latest'
           image: $DOCKER_LOGIN/$DOCKER_TAG
           tag: latest
           digest-path: /tmp/digest.txt
