@@ -185,8 +185,7 @@ jobs:
       - docker/check
       - docker/build:
           image: $DOCKER_LOGIN/$DOCKER_TAG
-          dockerfile: backend/Dockerfile
-          path: backend
+          path: ./backend
   
   publish-backend:
     executor: docker/machine
