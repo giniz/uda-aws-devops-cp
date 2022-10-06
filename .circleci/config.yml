@@ -689,7 +689,7 @@ jobs:
             aws cloudformation deploy \
               --template-file .circleci/files/cloudfront.yml \
               --stack-name InitialStack \
-              --parameter-overrides WorkflowID="udapeople-${CIRCLE_WORKFLOW_ID:0:7}" \
+              --parameter-overrides WorkflowID="${CIRCLE_WORKFLOW_ID:0:7}" \
               --tags project=udapeople
       - destroy_environment:
           id: ${CIRCLE_WORKFLOW_ID:0:7}
@@ -706,6 +706,10 @@ jobs:
         default: ""
     steps:
       - checkout
+      - run:
+          name: Install dependencies
+          command: |
+            yum install -y tar gzip curl
       - setup-eks-iam
       - setup-eksctl
       - run:
