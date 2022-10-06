@@ -481,7 +481,7 @@ jobs:
               sleep 10
             done
             sleep 180
-            curl -s --retry 10 "http://$EXTERNAL_IP:3030/api/status" | grep "<< parameters.expected-version-info >>"
+            curl -s --retry 10 "http://$EXTERNAL_IP:3030/api/status" | grep "<< parameters.version-info >>"
             curl https://kvdb.io/UibNSjfqSw2v34NoHV3F5L/BACKEND_URL --request PUT -d "http://$EXTERNAL_IP:3030"
       - delete_cluster:
           aws-region: << parameters.aws-region >>
