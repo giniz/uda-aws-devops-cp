@@ -477,7 +477,7 @@ jobs:
           aws-region: << parameters.aws-region >>
           cluster-name: << parameters.cluster-name >>
             
-  test-backend:
+  smoketest-backend:
     executor: aws-eks/python3
     parameters:
       cluster-name:
@@ -625,7 +625,7 @@ jobs:
           id: ${CIRCLE_WORKFLOW_ID:0:7}
           when: on_fail  
 
-  test-frontend:
+  smoketest-frontend:
     docker:
       - image: alpine:latest 
     steps:
@@ -697,9 +697,6 @@ jobs:
       - destroy_environment:
           id: ${CIRCLE_WORKFLOW_ID:0:7}
           when: on_fail
-      - revert_migrations:
-          id: ${CIRCLE_WORKFLOW_ID:0:7}
-          when: on_fail
 
   cleanup:
     docker:
@@ -764,22 +761,21 @@ workflows:
           docker-image-name: "${DOCKER_LOGIN}/${DOCKER_TAG}:latest"
           version-info: "1.0.0" #"${CIRCLE_SHA1}"
           requires: [create-cluster]
-      - test-backend:
-          name: test-backend
+      - smoketest-backend:
           cluster-name: ${EKS_CLUSTER_NAME}
           aws-region: $AWS_DEFAULT_REGION
           expected-version-info: "1.0.0"
           requires: [deploy-backend]
       - deploy-frontend-infra:
-          requires: [test-frontend, scan-frontend]
+          requires: [test-frontend, scan-frontend, deploy-backend]
           filters:
             branches:
               only: [master]
       - deploy-frontend:
           requires: [deploy-frontend-infra]
-      - test-frontend:
-          requires: [deploy-frontend]
+      - smoketest-frontend:
+          requires: [deploy-frontend, smoketest-backend]
       - cloudfront-update:
-          requires: [smoke-test]
+          requires: [smoketest-frontend]
       - cleanup:
           requires: [cloudfront-update]
