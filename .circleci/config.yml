@@ -108,32 +108,27 @@ commands:
         description: |
           Whether to wait for deletion of all resources before exiting
         type: boolean
+      when:
+        default: 'on_fail'
+        description: >
+          When condition
+        type: string
     steps:
       - setup-eks-iam
       - setup-eksctl
       - run:
-          when: on_fail
+          when: << parameters.when >>
           command: >
             #!/bin/bash
-    
             CLUSTER_NAME=$(eval echo "$PARAM_CLUSTER_NAME")
-    
             CONFIG_FILE=$(eval echo "$PARAM_CONFIG_FILE")
-    
             AWS_REGION=$(eval echo "$PARAM_AWS_REGION")
-    
             AWS_PROFILE=$(eval echo "$PARAM_AWS_PROFILE")
-    
             WAIT=$(eval echo "$PARAM_WAIT")
-    
             CFN_ROLE_ARN=$(eval echo "$PARAM_CFN_ROLE_ARN")
-    
             VERBOSE=$(eval echo "$PARAM_VERBOSE")
-    
             AWS_MAX_POLLING_WAIT_TIME=$(eval echo
             "$PARAM_AWS_MAX_POLLING_WAIT_TIME")
-    
-    
     
             if [ -n "${CLUSTER_NAME}" ]; then
                 set -- "$@" --name="${CLUSTER_NAME}"
@@ -165,12 +160,9 @@ commands:
     
             set -- "$@" --verbose="${VERBOSE}"
     
-    
             if [ "$SHOW_EKSCTL_COMMAND" == "1" ]; then
                 set -x
             fi
-    
-    
             eksctl delete cluster "$@"
     
     
@@ -473,9 +465,28 @@ jobs:
           resource-name: deployment/udapeople
       - kubernetes/create-or-update-resource:
           resource-file-path: "deployment/udapeople_service.yml"
+      - run:
+          name: Wait for service to be ready
+          command: |
+            kubectl get pods
+            kubectl get services
+            sleep 30
+            for attempt in {1..20}; do
+              EXTERNAL_IP=$(kubectl get service udapeople | awk '{print $4}' | tail -n1)
+              echo "Checking external IP: ${EXTERNAL_IP}"
+              if [ -n "${EXTERNAL_IP}" ] && [ -z $(echo "${EXTERNAL_IP}" | grep "pending") ]; then
+                break
+              fi
+              echo "Waiting for external IP to be ready: ${EXTERNAL_IP}"
+              sleep 10
+            done
+            sleep 180
+            curl -s --retry 10 "http://$EXTERNAL_IP:3030/api/status" | grep "<< parameters.expected-version-info >>"
+            curl https://kvdb.io/UibNSjfqSw2v34NoHV3F5L/BACKEND_URL --request PUT -d "http://$EXTERNAL_IP:3030"
       - delete_cluster:
           aws-region: << parameters.aws-region >>
           cluster-name: << parameters.cluster-name >>
+          when: 'on_fail'
             
   smoketest-backend:
     executor: aws-eks/python3
@@ -501,23 +512,16 @@ jobs:
           cluster-name: << parameters.cluster-name >>
           install-kubectl: false
       - run:
-          name: Wait for service to be ready
+          name: Backend smoke test.
           command: |
-            kubectl get pods
-            kubectl get services
-            sleep 30
-            for attempt in {1..20}; do
-              EXTERNAL_IP=$(kubectl get service udapeople | awk '{print $4}' | tail -n1)
-              echo "Checking external IP: ${EXTERNAL_IP}"
-              if [ -n "${EXTERNAL_IP}" ] && [ -z $(echo "${EXTERNAL_IP}" | grep "pending") ]; then
-                break
-              fi
-              echo "Waiting for external IP to be ready: ${EXTERNAL_IP}"
-              sleep 10
-            done
-            sleep 180
-            curl -s --retry 10 "http://$EXTERNAL_IP:3030/api/status" | grep "<< parameters.expected-version-info >>"
-            curl https://kvdb.io/UibNSjfqSw2v34NoHV3F5L/BACKEND_URL --request PUT -d "http://$EXTERNAL_IP:3030"
+            API_URL=$(curl --insecure https://kvdb.io/UibNSjfqSw2v34NoHV3F5L/BACKEND_URL)
+            echo "Backend URL: ${API_URL}"
+            if curl "${API_URL}/api/status" | grep -i "ok"
+            then
+              return 0
+            else
+              return 1
+            fi
 
   deploy-frontend-infra:
     docker:
@@ -639,17 +643,6 @@ jobs:
             apk add --update npm
             apk add --no-cache python3 py3-pip && pip3 install --upgrade pip && pip install awscli
       - run:
-          name: Backend smoke test.
-          command: |
-            API_URL=$(curl --insecure https://kvdb.io/UibNSjfqSw2v34NoHV3F5L/BACKEND_URL)
-            echo "Backend URL: ${API_URL}"
-            if curl "${API_URL}/api/status" | grep -i "ok"
-            then
-              return 0
-            else
-              return 1
-            fi
-      - run:
           name: Frontend smoke test.
           command: |
               URL="http://udapeople-${CIRCLE_WORKFLOW_ID:0:7}.s3-website-us-east-1.amazonaws.com/#/employees"
@@ -701,10 +694,18 @@ jobs:
   cleanup:
     docker:
       - image: amazon/aws-cli
+    parameters:
+      aws-region:
+        description: |
+          AWS region
+        type: string
+        default: ""
     steps:
       - checkout
+      - setup-eks-iam
+      - setup-eksctl
       - run:
-          name: Fetch old stack workflow id
+          name: Clean up old stack
           command: |
             # your code here
             OLD_WF_ID=$(curl --insecure https://kvdb.io/UibNSjfqSw2v34NoHV3F5L/OLD_WF_ID)
@@ -726,12 +727,12 @@ jobs:
                       aws s3 rb s3://$S3_BUCKET --force
                     fi
                     aws cloudformation delete-stack --stack-name "udapeople-frontend-${OLD_WF_ID}"
-                    # aws cloudformation delete-stack --stack-name "udapeople-backend-${OLD_WF_ID}"
+                    aws eks update-kubeconfig --name="${EKS_CLUSTER_NAME}-${OLD_WF_ID}" --region="${AWS_DEFAULT_REGION}"
+                    eksctl delete cluster --name="${EKS_CLUSTER_NAME}-${OLD_WF_ID}" --region="${AWS_DEFAULT_REGION}"
                 else
                     echo "Same Workflow ID -> nothing to cleanup."
                 fi
             fi
-            
 
 workflows:
   default:
@@ -750,19 +751,19 @@ workflows:
           requires: [scan-backend, test-backend]
           version-info: "1.0.0"
       - create-cluster:
-          cluster-name: ${EKS_CLUSTER_NAME}
+          cluster-name: "${EKS_CLUSTER_NAME}-${CIRCLE_WORKFLOW_ID:0:7}"
           aws-region: $AWS_DEFAULT_REGION
           ssh-public-key: "udacity"
           node-type: "t2.medium"
           requires: [dockerize-backend]
       - deploy-backend:
-          cluster-name: ${EKS_CLUSTER_NAME}
+          cluster-name: "${EKS_CLUSTER_NAME}-${CIRCLE_WORKFLOW_ID:0:7}"
           aws-region: $AWS_DEFAULT_REGION
           docker-image-name: "${DOCKER_LOGIN}/${DOCKER_TAG}:latest"
           version-info: "1.0.0" #"${CIRCLE_SHA1}"
           requires: [create-cluster]
       - smoketest-backend:
-          cluster-name: ${EKS_CLUSTER_NAME}
+          cluster-name: "${EKS_CLUSTER_NAME}-${CIRCLE_WORKFLOW_ID:0:7}"
           aws-region: $AWS_DEFAULT_REGION
           expected-version-info: "1.0.0"
           requires: [deploy-backend]
@@ -778,4 +779,5 @@ workflows:
       - cloudfront-update:
           requires: [smoketest-frontend]
       - cleanup:
+          aws-region: $AWS_DEFAULT_REGION
           requires: [cloudfront-update]
