@@ -518,10 +518,14 @@ jobs:
             echo "Backend URL: ${API_URL}"
             if curl "${API_URL}/api/status" | grep -i "ok"
             then
-              return 0
+              exit 0
             else
-              return 1
+              exit 1
             fi
+      - delete_cluster:
+          aws-region: << parameters.aws-region >>
+          cluster-name: << parameters.cluster-name >>
+          when: 'on_fail'
 
   deploy-frontend-infra:
     docker:
